@@ -211,6 +211,7 @@
             return {
                 token_hash: urlParams.get('token_hash') || hashParams.get('token_hash') || 
                            urlParams.get('token') || hashParams.get('token'),
+                code: urlParams.get('code') || hashParams.get('code'), // New auth flow uses 'code'
                 type: urlParams.get('type') || hashParams.get('type') || 'signup',
                 access_token: hashParams.get('access_token') || urlParams.get('access_token'),
                 refresh_token: hashParams.get('refresh_token') || urlParams.get('refresh_token'),
@@ -239,60 +240,59 @@
                     return;
                 }
 
-                // If we have token_hash, verify it using Supabase v2 client
-                if (params.token_hash) {
+                // Handle different token types
+                if (params.code) {
+                    // New auth flow uses 'code' parameter
+                    console.log('Code found:', params.code);
+                    
+                    try {
+                        const { data, error } = await supabaseClient.auth.exchangeCodeForSession(params.code);
+                        console.log('ExchangeCodeForSession result:', { data, error });
+
+                        if (error) {
+                            throw new Error(error.message || 'Doğrulama başarısız');
+                        }
+
+                        if (data?.user) {
+                            console.log('User verified successfully:', data.user);
+                            showSuccess();
+                        } else {
+                            throw new Error('Doğrulama işlemi tamamlanamadı');
+                        }
+                    } catch (e) {
+                        console.log('ExchangeCodeForSession failed:', e);
+                        throw new Error('Doğrulama işlemi başarısız: ' + e.message);
+                    }
+                    
+                } else if (params.token_hash) {
+                    // Old auth flow uses 'token_hash' parameter
                     console.log('Token hash found:', params.token_hash, 'Type:', params.type);
                     
-                    // Try different verification methods
-                    let result;
-                    
-                    // Method 1: verifyOtp with token_hash
                     try {
-                        result = await supabaseClient.auth.verifyOtp({
+                        const { data, error } = await supabaseClient.auth.verifyOtp({
                             token_hash: params.token_hash,
                             type: 'email'
                         });
-                        console.log('VerifyOtp method 1 result:', result);
+                        console.log('VerifyOtp result:', { data, error });
+
+                        if (error) {
+                            throw new Error(error.message || 'Doğrulama başarısız');
+                        }
+
+                        if (data?.user) {
+                            console.log('User verified successfully:', data.user);
+                            showSuccess();
+                        } else {
+                            throw new Error('Doğrulama işlemi tamamlanamadı');
+                        }
                     } catch (e) {
-                        console.log('VerifyOtp method 1 failed:', e);
+                        console.log('VerifyOtp failed:', e);
+                        throw new Error('Doğrulama işlemi başarısız: ' + e.message);
                     }
                     
-                    // Method 2: If first method fails, try with type signup
-                    if (!result?.data?.user) {
-                        try {
-                            result = await supabaseClient.auth.verifyOtp({
-                                token_hash: params.token_hash,
-                                type: 'signup'
-                            });
-                            console.log('VerifyOtp method 2 result:', result);
-                        } catch (e) {
-                            console.log('VerifyOtp method 2 failed:', e);
-                        }
-                    }
-                    
-                    // Method 3: Try exchangeCodeForSession if available
-                    if (!result?.data?.user && params.token_hash) {
-                        try {
-                            result = await supabaseClient.auth.exchangeCodeForSession(params.token_hash);
-                            console.log('ExchangeCodeForSession result:', result);
-                        } catch (e) {
-                            console.log('ExchangeCodeForSession failed:', e);
-                        }
-                    }
-
-                    if (result?.error) {
-                        throw new Error(result.error.message || 'Doğrulama başarısız');
-                    }
-
-                    if (result?.data?.user) {
-                        console.log('User verified successfully:', result.data.user);
-                        showSuccess();
-                    } else {
-                        throw new Error('Doğrulama işlemi tamamlanamadı');
-                    }
                 } else {
-                    console.log('No token_hash found');
-                    throw new Error('Geçersiz doğrulama linki - token bulunamadı');
+                    console.log('No code or token_hash found');
+                    throw new Error('Geçersiz doğrulama linki - doğrulama kodu bulunamadı');
                 }
 
             } catch (error) {
