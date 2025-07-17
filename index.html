@@ -207,11 +207,13 @@
             console.log('URL Hash params:', hashParams.toString());
             console.log('Full URL:', window.location.href);
             
+            // Try different parameter names that Supabase might use
             return {
-                token_hash: urlParams.get('token_hash') || hashParams.get('token_hash'),
-                type: urlParams.get('type') || hashParams.get('type'),
-                access_token: hashParams.get('access_token'),
-                refresh_token: hashParams.get('refresh_token'),
+                token_hash: urlParams.get('token_hash') || hashParams.get('token_hash') || 
+                           urlParams.get('token') || hashParams.get('token'),
+                type: urlParams.get('type') || hashParams.get('type') || 'signup',
+                access_token: hashParams.get('access_token') || urlParams.get('access_token'),
+                refresh_token: hashParams.get('refresh_token') || urlParams.get('refresh_token'),
                 error: urlParams.get('error') || hashParams.get('error'),
                 error_description: urlParams.get('error_description') || hashParams.get('error_description')
             };
@@ -238,28 +240,58 @@
                 }
 
                 // If we have token_hash, verify it using Supabase v2 client
-                if (params.token_hash && params.type) {
+                if (params.token_hash) {
                     console.log('Token hash found:', params.token_hash, 'Type:', params.type);
                     
-                    const { data, error } = await supabaseClient.auth.verifyOtp({
-                        token_hash: params.token_hash,
-                        type: params.type === 'signup' ? 'signup' : 'email'
-                    });
-
-                    console.log('Verify response:', { data, error });
-
-                    if (error) {
-                        throw new Error(error.message || 'Doğrulama başarısız');
+                    // Try different verification methods
+                    let result;
+                    
+                    // Method 1: verifyOtp with token_hash
+                    try {
+                        result = await supabaseClient.auth.verifyOtp({
+                            token_hash: params.token_hash,
+                            type: 'email'
+                        });
+                        console.log('VerifyOtp method 1 result:', result);
+                    } catch (e) {
+                        console.log('VerifyOtp method 1 failed:', e);
+                    }
+                    
+                    // Method 2: If first method fails, try with type signup
+                    if (!result?.data?.user) {
+                        try {
+                            result = await supabaseClient.auth.verifyOtp({
+                                token_hash: params.token_hash,
+                                type: 'signup'
+                            });
+                            console.log('VerifyOtp method 2 result:', result);
+                        } catch (e) {
+                            console.log('VerifyOtp method 2 failed:', e);
+                        }
+                    }
+                    
+                    // Method 3: Try exchangeCodeForSession if available
+                    if (!result?.data?.user && params.token_hash) {
+                        try {
+                            result = await supabaseClient.auth.exchangeCodeForSession(params.token_hash);
+                            console.log('ExchangeCodeForSession result:', result);
+                        } catch (e) {
+                            console.log('ExchangeCodeForSession failed:', e);
+                        }
                     }
 
-                    if (data?.user) {
-                        console.log('User verified successfully:', data.user);
+                    if (result?.error) {
+                        throw new Error(result.error.message || 'Doğrulama başarısız');
+                    }
+
+                    if (result?.data?.user) {
+                        console.log('User verified successfully:', result.data.user);
                         showSuccess();
                     } else {
-                        throw new Error('Doğrulama tamamlandı ancak kullanıcı bilgisi alınamadı');
+                        throw new Error('Doğrulama işlemi tamamlanamadı');
                     }
                 } else {
-                    console.log('No token_hash or type found');
+                    console.log('No token_hash found');
                     throw new Error('Geçersiz doğrulama linki - token bulunamadı');
                 }
 
